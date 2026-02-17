@@ -1,17 +1,21 @@
-from pftsleep.slumber import edf_signals_to_zarr
-from pftsleep.bedside import error_callback_handler
+import subprocess
+import sys
 
-import multiprocessing as mp
+# Install compatible zarr version
+subprocess.check_call([sys.executable, "-m", "pip", "install", "zarr<3", "-q"])
+
+from pftsleep.slumber import edf_signals_to_zarr
+
 from pathlib import Path
 import glob
-from functools import partial
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 
-write_data_dir = ""
-edf_files = ""
-current_zarr_files = glob.glob(str(write_data_dir/"*.zarr"))
+write_data_dir = "/Workspace/Users/gpuchalski@kumc.edu/projects/PFTSleep/zarrs"
+edf_files = glob.glob("/Volumes/kumc_sleep/sleep_studies/shhs_data/pftsleep/*.edf")
+current_zarr_files = glob.glob(str(Path(write_data_dir)/"*.zarr"))
 
 df = pd.DataFrame(edf_files, columns=['file_path'])
 df['file_name'] = df['file_path'].apply(lambda x: Path(x).stem)
@@ -31,19 +35,40 @@ edf_files = df.loc[df['zarr_exists'] == False, 'file_path'].unique().tolist()
     # a = da.from_array(hyp, chunks='auto')
     # a.to_zarr(url=rt.store, component='hypnogram', compute=True, overwrite=True)
 
-def main_function(file, frequency=None, write_data_dir=write_data_dir):
+def process_file(file, frequency=None, write_data_dir=write_data_dir):
     try:
         _ = edf_signals_to_zarr(file, frequency=frequency, write_data_dir=write_data_dir)
+        return True, file, None
     except Exception as e:
-        print(f"Error parsing file: {file}. Error: {e}.", flush=True)
+        return False, file, str(e)
 
 
 if __name__ == '__main__':
-    print(f'Beginning MP Job with {mp.cpu_count()} processes')
+    total_files = len(edf_files)
+    print(f'Found {total_files} files to process')
+    print(f'Beginning processing with 4 threads')
+    
+    completed = 0
+    failed = 0
     start_time = time.time()
-    with mp.Pool() as pool:
-        result = pool.map_async(main_function, edf_files, error_callback=error_callback_handler)
-        pool.close()
-        pool.join()
+    
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {executor.submit(process_file, file): file for file in edf_files}
+        
+        for future in as_completed(futures):
+            file = futures[future]
+            try:
+                success, processed_file, error = future.result()
+                if success:
+                    completed += 1
+                    print(f"Progress: {completed}/{total_files} completed ({failed} failed) | File: {Path(processed_file).name}", flush=True)
+                else:
+                    failed += 1
+                    print(f"Error parsing file: {Path(processed_file).name}. Error: {error}", flush=True)
+            except Exception as e:
+                failed += 1
+                print(f"Unexpected error with file: {Path(file).name}. Error: {e}", flush=True)
+    
     print('Job Completed')
-    print(f"--- {time.time() - start_time} seconds ---")
+    print(f"--- {time.time() - start_time:.2f} seconds ---")
+    print(f"Successfully processed {completed}/{total_files} files ({failed} failed)")

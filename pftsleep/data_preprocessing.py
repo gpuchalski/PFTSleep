@@ -149,9 +149,9 @@ def calculate_samples(idx, zarr_file, channels, frequency, sample_seq_len_sec, s
         # all channels are present
         ## all channels should be the same length
         if 'header' in root_grp.attrs:
-            duration = int(root_grp.attrs['header']['Duration']) # duration in seconds
+            duration = int(float(root_grp.attrs['header']['Duration'])) # duration in seconds
         else:
-            duration = int(root_grp.attrs['Duration']) # duration in seconds
+            duration = int(float(root_grp.attrs['Duration'])) # duration in seconds
         if duration > start_offset_sec:
             if include_partial_samples:
                 max_seq_len = max_seq_len_sec*frequency if max_seq_len_sec is not None else duration*frequency+sample_seq_len-1

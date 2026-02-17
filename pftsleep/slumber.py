@@ -448,7 +448,7 @@ class SelfSupervisedTimeFrequencyDataset(Dataset):
         # get full length x, idx can be a slice
         sample = self.sample_df.iloc[idx]
         root_grp = zarr.open(sample['file'])
-        duration_seconds = int(root_grp.attrs.asdict()['header']['Duration'])
+        duration_seconds = int(float(root_grp.attrs.asdict()['header']['Duration']))
         signals = []
         channels = []
         if self.channels_has_dim:
@@ -616,7 +616,7 @@ class HypnogramTimeFrequencyDataset(Dataset):
         # get full length x, idx can be a slice
         sample = self.sample_df.iloc[idx]
         root_grp = zarr.open(sample['file'])
-        duration_seconds = int(root_grp.attrs.asdict()['header']['Duration'])
+        duration_seconds = int(float(root_grp.attrs.asdict()['header']['Duration']))
         signals = []
         channels = []
         if self.channels_has_dim:
