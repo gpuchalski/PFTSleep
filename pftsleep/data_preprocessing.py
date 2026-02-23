@@ -176,20 +176,127 @@ def calculate_samples(idx, zarr_file, channels, frequency, sample_seq_len_sec, s
                             
                 sample_index_df['n_samples'] = len(sample_indices)
                 return sample_index_df
+def _calculate_samples_worker(args):
+    """
+    Top-level worker for multiprocessing (Databricks-safe).
+    """
+    (
+        idx,
+        zarr_file,
+        channels,
+        frequency,
+        start_offset_sec,
+        max_seq_len_sec,
+        sample_seq_len_sec,
+        stride_sec,
+        include_partial_samples,
+        nan_tolerance,
+    ) = args
+ 
+    return calculate_samples(
+        idx,
+        zarr_file,
+        channels=channels,
+        frequency=frequency,
+        start_offset_sec=start_offset_sec,
+        max_seq_len_sec=max_seq_len_sec,
+        sample_seq_len_sec=sample_seq_len_sec,
+        stride_sec=stride_sec,
+        include_partial_samples=include_partial_samples,
+        nan_tolerance=nan_tolerance,
+    )
+def calculate_samples_mp(
 
-def calculate_samples_mp(zarr_files, channels, frequency, sample_seq_len_sec, stride_sec, start_offset_sec = None, max_seq_len_sec=None, include_partial_samples=True, nan_tolerance=0.0):
+    zarr_files,
+
+    channels,
+
+    frequency,
+
+    sample_seq_len_sec,
+
+    stride_sec,
+
+    start_offset_sec=None,
+
+    max_seq_len_sec=None,
+
+    include_partial_samples=True,
+
+    nan_tolerance=0.0,
+
+    workers=4,   # safer default for Databricks
+
+):
+
     """
+
     Multiprocessing function to generate samples
+
+    WITH LIVE PROGRESS BAR (Databricks-safe version)
+
     """
-    final_df = pd.DataFrame(columns=['file', 'start_idx','end_idx','n_samples'])
-    total_samples = 0
-    with mp.Pool() as pool:
-        f = partial(calculate_samples, channels=channels, frequency=frequency, start_offset_sec=start_offset_sec, max_seq_len_sec=max_seq_len_sec, sample_seq_len_sec=sample_seq_len_sec, stride_sec=stride_sec, include_partial_samples=include_partial_samples, nan_tolerance=nan_tolerance)
-        results = pool.starmap_async(f, enumerate(zarr_files))
-        pool.close()
-        pool.join()
-    for result in results.get():
-        final_df = pd.concat([final_df, result])
-    final_df.reset_index(drop=True, inplace=True)
+ 
+    import multiprocessing as mp
+
+    import pandas as pd
+
+    from tqdm import tqdm
+ 
+    final_df_list = []
+ 
+    # Build argument list (must be fully pickleable)
+
+    args_list = [
+
+        (
+
+            idx,
+
+            zarr_file,
+
+            channels,
+
+            frequency,
+
+            start_offset_sec,
+
+            max_seq_len_sec,
+
+            sample_seq_len_sec,
+
+            stride_sec,
+
+            include_partial_samples,
+
+            nan_tolerance,
+
+        )
+
+        for idx, zarr_file in enumerate(zarr_files)
+
+    ]
+ 
+    with mp.Pool(processes=workers) as pool:
+ 
+        for result in tqdm(
+
+            pool.imap_unordered(_calculate_samples_worker, args_list),
+
+            total=len(args_list),
+
+            desc="Building sample_df",
+
+            unit="file",
+
+        ):
+
+            final_df_list.append(result)
+ 
+    final_df = pd.concat(final_df_list, ignore_index=True)
+
     total_samples = len(final_df)
+ 
     return final_df, total_samples
+
+ 
