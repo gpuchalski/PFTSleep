@@ -1,0 +1,31 @@
+# PFTSleep Pipeline - Serverless GPU Base Environment
+# Register via: Settings > Workspace admin > Compute > Base environments > Create new environment
+# Select "Build for Serverless GPU Compute" when registering.
+
+environment_version: '5'
+dependencies:
+  - --extra-index-url https://pypi.nvidia.com
+  - "zarr<3"
+  - "numcodecs<0.16"
+  - /Workspace/Users/gpuchalski@kumc.edu/PFTSleep/
+  - umap-learn
+  - hdbscan
+  - optuna
+  - optuna-dashboard
+  - faiss-cpu
+  - lifelines
+  - statsmodels
+  - plotly
+  - matplotlib
+  - seaborn
+  - scipy
+  - scikit-learn
+  - pandas
+  - pyarrow
+  - joblib
+  - psutil
+  - tqdm
+  - pyyaml
+  - "cuml-cu12==24.10.*"
+  - "cudf-cu12==24.10.*"
+  - "cupy-cuda12x==13.*"

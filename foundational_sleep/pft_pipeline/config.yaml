@@ -1,0 +1,107 @@
+# =============================================================================
+# PFTSleep Pipeline Configuration
+# =============================================================================
+# Single source of truth for every stage. Edit values here; no need to touch
+# code. Paths, cohort parameters, compute settings, and per-stage options all
+# live in this file. Loaded and validated by pft_config.py.
+#
+# After editing, the change takes effect on the next pipeline run. Keep this
+# file under version control so every run is reproducible from its config.
+# =============================================================================
+
+# ---- identity / cohort ------------------------------------------------------
+encoder_name: "PFTSleep"
+num_files: 1219
+random_state: 42
+
+# ---- signal / windowing (MUST match how PFTSleep was trained) ---------------
+signal:
+  frequency: 125          # Hz
+  win_length: 750         # samples per 6 s patch (6 * 125)
+  hop_length: 750         # non-overlapping (hop == win)
+  max_seq_len_sec: 28800  # 8 hours; the released model only accepts 8 h input
+  window_size_sec: 6
+
+# ---- embedding layout -------------------------------------------------------
+embedding:
+  channel_names: ["ECG", "EOG", "EMG", "EEG", "SaO2", "THOR", "ABDO"]
+  n_channels: 7
+  channel_dim: 512
+  # total dim D = n_channels * channel_dim = 3584 (computed in loader)
+
+# ---- paths ------------------------------------------------------------------
+# All paths are absolute Databricks/DBFS/Volume paths. Adjust to your workspace.
+paths:
+  zarr_dir:    "/Workspace/Users/gpuchalski@kumc.edu/projects/PFTSleep/clipped_zarrs_v2"
+  model_ckpt:  "/Workspace/Users/gpuchalski@kumc.edu/projects/PFTSleep/models/pft_sleep_encoder.ckpt"
+  cache_dir:   "/dbfs/tmp/new_pftsleep_cache"
+  out_dir:     "/Volumes/kumc_sleep/sleep_studies/shhs_data/clustering_outputs_new/A100"
+  demo_csv:    "/Volumes/kumc_sleep/sleep_studies/shhs_data/excel_sheet/sleep_excel.csv"
+  events_dir:  "/Volumes/kumc_sleep/sleep_studies/shhs_data/scored_sleep/cohort_1219_events"
+  events_parent: "/Volumes/kumc_sleep/sleep_studies/shhs_data/scored_sleep"
+  cache_backup: "/Volumes/kumc_sleep/sleep_studies/shhs_data/pftsleep_cache_backup"
+
+# ---- compute (A100) ---------------------------------------------------------
+compute:
+  use_fp16: false         # FP32 on A100 fixes the FP16 attention-overflow NaNs
+  batch_size: 4           # A100 80 GB headroom
+  workers: 8
+  require_a100: true       # GATE: warn/halt if the attached GPU is not an A100
+
+# ---- clustering -------------------------------------------------------------
+# PARAMETER SOURCE is controlled by run_optuna_sweep:
+#   true  -> run the Optuna search (optuna_n_trials) and USE its best trial.
+#            The hdbscan_*/umap_* values below are IGNORED in this mode.
+#   false -> SKIP the search entirely and use the fixed hdbscan_*/umap_* values
+#            below. Fully reproducible: every run reproduces the same clustering.
+#
+# Typical workflow: run once with run_optuna_sweep=true to search, read the
+# winning params from the log, paste them into the fixed values below, then set
+# run_optuna_sweep=false to lock them for all future reproducible runs.
+clustering:
+  run_optuna_sweep: false   # false = use the fixed params below (locked)
+  optuna_n_trials: 50       # only used when run_optuna_sweep=true
+
+  n_fit_umap: 3000000       # windows used to LEARN the UMAP manifold (subsample)
+  umap_build_algo: "brute_force_knn"
+
+  # ---- fixed params (used when run_optuna_sweep=false) ----
+  # These are the manually chosen, defensible final values (selected from the
+  # min_cluster_size scan, NOT the degenerate Optuna 89%-noise trial).
+  umap_n_neighbors: 15
+  umap_n_components: 3
+  umap_min_dist: 0.0
+  hdbscan_min_cluster_size: 3000
+  hdbscan_min_samples: 10
+  hdbscan_cluster_selection_method: "eom"
+
+# ---- analysis ---------------------------------------------------------------
+analysis:
+  # primary AHI column + the severity panel used across analyses
+  primary_ahi: "ahi_a0h3a"
+  severity_measures: ["HypoxicBurden", "MinSat", "age_s1", "ahi_a0h3a",
+                      "bmi_s1", "pctlt90"]
+  cvd_event_col: "inci_cvd_all_01"
+  cvd_time_col:  "inci_cvd_all_time"
+  fdr_alpha: 0.05
+
+# ---- phenotypes -------------------------------------------------------------
+phenotypes:
+  k_values: [3, 4, 5]      # candidate phenotype counts to generate
+  k_scan_min: 2            # range for the selection-criteria scan (E15/E16)
+  k_scan_max: 15
+
+# ---- pipeline control -------------------------------------------------------
+# Which stages to run on a given invocation. The driver respects this order.
+# Set any to false to skip (e.g. skip extraction if the cache already exists).
+stages:
+  extract:        true
+  cluster:        true
+  collect_events: true
+  cluster_analysis: true
+  scored_sleep:   true
+  annotation_demographics: true
+  core_plots:     true
+  extended_plots: true
+  phenotype_scan: true
+  phenotypes:     true
